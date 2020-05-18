@@ -12,11 +12,19 @@ public Plugin myinfo =
 	url = "https://github.com/Ilusion9/"
 };
 
+enum BotsMode
+{
+	BotsMode_Fix,
+	BotsMode_Round,
+	BotsMode_Deathmatch
+};
+
 ConVar g_Cvar_BotsNum;
 ConVar g_Cvar_BotsMode;
 ConVar g_Cvar_BotQuota;
 ConVar g_Cvar_BotQuotaMode;
 
+BotsMode g_BotsMode;
 int g_NumBotsOnServer;
 
 public void OnPluginStart()
@@ -42,7 +50,26 @@ public void OnMapEnd()
 
 public void OnConfigsExecuted()
 {
+	g_NumBotsOnServer = 0;
+	g_Cvar_BotQuota.SetInt(0);
 	g_Cvar_BotQuotaMode.SetString("normal");
+	
+	// Get bots mode
+	char mode[128];
+	g_Cvar_BotsMode.GetString(mode, sizeof(mode));
+	
+	if (StrEqual(mode, "dm", true))
+	{
+		g_BotsMode = BotsMode_Deathmatch;
+	}
+	else if (StrEqual(mode, "fix", true))
+	{
+		g_BotsMode = BotsMode_Fix;
+	}
+	else
+	{
+		g_BotsMode = BotsMode_Round;
+	}
 }
 
 /* Change of valve cvars */
@@ -65,15 +92,12 @@ public void ConVarChange_BotQuotaMode(ConVar convar, const char[] oldValue, cons
 /* Hook change of our convars */
 public void ConVarChange_BotsNum(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	char bots_mode[64];
-	g_Cvar_BotsMode.GetString(bots_mode, sizeof(bots_mode));
 	int num_bots = g_NumBotsOnServer;
-
-	if (StrEqual(bots_mode, "fix", true))
+	if (g_BotsMode == BotsMode_Fix)
 	{
 		num_bots = g_Cvar_BotsNum.IntValue;
 	}
-	else if (StrEqual(bots_mode, "dm", true))
+	else if (g_BotsMode == BotsMode_Deathmatch)
 	{
 		if (g_Cvar_BotsNum.IntValue)
 		{
@@ -94,22 +118,27 @@ public void ConVarChange_BotsNum(ConVar convar, const char[] oldValue, const cha
 
 public void ConVarChange_BotsMode(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	bool dm_mode = StrEqual(newValue, "dm", true);
-	bool fix_mode = StrEqual(newValue, "fix", true);
-	bool round_mode = StrEqual(newValue, "round", true);
-
-	if (!dm_mode && !fix_mode && !round_mode)
+	// Get bots mode
+	if (StrEqual(newValue, "dm", true))
 	{
-		g_Cvar_BotsMode.SetString("round");
-		return;
+		g_BotsMode = BotsMode_Deathmatch;
+	}
+	else if (StrEqual(newValue, "fix", true))
+	{
+		g_BotsMode = BotsMode_Fix;
+	}
+	else
+	{
+		g_BotsMode = BotsMode_Round;
 	}
 	
+	// Change num bots on server
 	int num_bots = g_NumBotsOnServer;	
-	if (fix_mode)
+	if (g_BotsMode == BotsMode_Fix)
 	{
 		num_bots = g_Cvar_BotsNum.IntValue;
 	}
-	else if (dm_mode)
+	else if (g_BotsMode == BotsMode_Deathmatch)
 	{
 		if (g_Cvar_BotsNum.IntValue)
 		{
@@ -135,16 +164,13 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 	
-	char bots_mode[64];
-	g_Cvar_BotsMode.GetString(bots_mode, sizeof(bots_mode));
-	
-	int num_bots, num_players;
+	int num_bots = 0, num_players = 0;
 	int userId = event.GetInt("userid");
 	int to_team = event.GetInt("team");
 	int old_team = event.GetInt("oldteam");
 	bool is_disconnecting = event.GetBool("disconnect");
 	
-	if (StrEqual(bots_mode, "dm", true))
+	if (g_BotsMode == BotsMode_Deathmatch || IsWarmupPeriod() && g_BotsMode == BotsMode_Round)
 	{
 		if (is_disconnecting)
 		{
@@ -200,21 +226,13 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
 {
-	if (!g_Cvar_BotsNum.IntValue)
+	if (!g_Cvar_BotsNum.IntValue || g_BotsMode == BotsMode_Deathmatch)
 	{
 		return;
 	}
 	
-	char bots_mode[64];
-	g_Cvar_BotsMode.GetString(bots_mode, sizeof(bots_mode));
-	
-	if (StrEqual(bots_mode, "dm", true))
-	{
-		return;
-	}
-	
-	int num_bots, num_players;
-	if (StrEqual(bots_mode, "fix", true))
+	int num_bots = 0, num_players = 0;
+	if (g_BotsMode == BotsMode_Fix)
 	{
 		num_bots = g_Cvar_BotsNum.IntValue;
 	}
@@ -254,4 +272,9 @@ int GetNumOfPlayers(int skip_userid = 0)
 	}
 	
 	return num_players;
+}
+
+bool IsWarmupPeriod()
+{
+	return view_as<bool>(GameRules_GetProp("m_bWarmupPeriod"));
 }
