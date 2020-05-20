@@ -79,6 +79,12 @@ public void ConVarChange_BotQuota(ConVar convar, const char[] oldValue, const ch
 	{
 		g_Cvar_BotQuota.SetInt(g_NumBotsOnServer);
 	}
+	
+	// kick all bots
+	if (!g_Cvar_BotQuota.IntValue)
+	{
+		ServerCommand("bot_kick all");
+	}
 }
 
 public void ConVarChange_BotQuotaMode(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -92,7 +98,9 @@ public void ConVarChange_BotQuotaMode(ConVar convar, const char[] oldValue, cons
 /* Hook change of our convars */
 public void ConVarChange_BotsNum(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+	int num_players;
 	int num_bots = g_NumBotsOnServer;
+	
 	if (g_BotsMode == BotsMode_Fix)
 	{
 		num_bots = g_Cvar_BotsNum.IntValue;
@@ -101,8 +109,9 @@ public void ConVarChange_BotsNum(ConVar convar, const char[] oldValue, const cha
 	{
 		if (g_Cvar_BotsNum.IntValue)
 		{
-			num_bots = g_Cvar_BotsNum.IntValue - GetNumOfPlayers();
-			if (num_bots < 1)
+			num_players = GetNumOfPlayers();
+			num_bots = g_Cvar_BotsNum.IntValue - num_players;
+			if (num_bots < 1 || !num_players)
 			{
 				num_bots = 0;
 			}
@@ -133,7 +142,9 @@ public void ConVarChange_BotsMode(ConVar convar, const char[] oldValue, const ch
 	}
 	
 	// Change num bots on server
+	int num_players;
 	int num_bots = g_NumBotsOnServer;	
+	
 	if (g_BotsMode == BotsMode_Fix)
 	{
 		num_bots = g_Cvar_BotsNum.IntValue;
@@ -142,8 +153,9 @@ public void ConVarChange_BotsMode(ConVar convar, const char[] oldValue, const ch
 	{
 		if (g_Cvar_BotsNum.IntValue)
 		{
-			num_bots = g_Cvar_BotsNum.IntValue - GetNumOfPlayers();
-			if (num_bots < 1)
+			num_players = GetNumOfPlayers();
+			num_bots = g_Cvar_BotsNum.IntValue - num_players;
+			if (num_bots < 1 || !num_players)
 			{
 				num_bots = 0;
 			}
@@ -198,12 +210,6 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 			num_bots = 0;
 		}
 		
-		if (!num_bots)
-		{
-			g_NumBotsOnServer = 0;
-			ServerCommand("bot_kick all");
-		}
-		
 		if (num_bots != g_NumBotsOnServer)
 		{
 			g_NumBotsOnServer = num_bots;
@@ -215,10 +221,10 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 		if (is_disconnecting || to_team == CS_TEAM_SPECTATOR)
 		{
 			num_players = GetNumOfPlayers(userId);
-			if (!num_players)
+			if (!num_players && g_NumBotsOnServer)
 			{
 				g_NumBotsOnServer = 0;
-				ServerCommand("bot_kick all");
+				g_Cvar_BotQuota.SetInt(0);
 			}
 		}
 	}
@@ -244,12 +250,6 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 		if (num_bots < 0 || !num_players)
 		{
 			num_bots = 0;
-		}
-		
-		if (!num_bots)
-		{
-			g_NumBotsOnServer = num_bots;
-			ServerCommand("bot_kick all");
 		}
 	}
 	
