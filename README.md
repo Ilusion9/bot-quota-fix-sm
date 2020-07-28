@@ -22,6 +22,9 @@ sm_bots_mode round - Determines the type of quota. Allowed values: "fix", "round
 - This type will always keep sm_bots_num bots in the server and will add/remove bots when players joins/change teams or when they leave the server. Switching teams will not change the number of the bots (this is possible in dm and will screw up the bot_quota convar. This plugin fixes this bug).
 - This should be used on deathmatch modes (modes based on respawn: dm, ffa dm, gungame, awp with respawn etc.), even if you use game_mode and game_type as casual, comp etc.
 
+## sm_bots_mode arena
+- Keep 1 bot if someone is without an opponent in arena.
+
 ### I recommend these convars, because changing bot_quota too much will screw up the number of the players (on steam browser or gametracker):
 ```
 host_name_store 1
