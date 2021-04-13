@@ -1,254 +1,191 @@
+#pragma newdecls required
 #include <sourcemod>
 #include <sdktools>
 #include <cstrike>
-#undef REQUIRE_PLUGIN
-#include <multi1v1>
-#pragma newdecls required
 
 public Plugin myinfo =
 {
 	name = "Bot Quota Fix",
 	author = "Ilusion9",
 	description = "Bot quota fix.",
-	version = "1.0",
+	version = "1.1",
 	url = "https://github.com/Ilusion9/"
 };
 
-enum BotsMode
+enum BotQuotaInfo
 {
-	BotsMode_Fix,
-	BotsMode_Round,
-	BotsMode_Deathmatch,
-	BotsMode_Arena
+	BotQuota_Casual,
+	BotQuota_Even,
+	BotQuota_Fill,
+	BotQuota_Normal
 };
 
-ConVar g_Cvar_BotsNum;
+ConVar g_Cvar_BotsCount;
 ConVar g_Cvar_BotsMode;
+
 ConVar g_Cvar_BotQuota;
 ConVar g_Cvar_BotQuotaMode;
 
-BotsMode g_BotsMode;
-int g_NumBotsOnServer;
+int g_NumCurrentBots;
+BotQuotaInfo g_CurrentBotsMode;
 
 public void OnPluginStart()
 {
-	g_Cvar_BotsNum = CreateConVar("sm_bots_num", "6", "Determines the total number of bots in the game.", FCVAR_NONE, true, 0.0);
-	g_Cvar_BotsNum.AddChangeHook(ConVarChange_BotsNum);
-	g_Cvar_BotsMode = CreateConVar("sm_bots_mode", "round", "Determines the type of quota. Allowed values: \"fix\", \"round\", \"dm\" and \"arena\".", FCVAR_NONE, true, 0.0);
+	g_Cvar_BotsCount = CreateConVar("sm_bot_quota", "4", "Determines the total number of bots in the game.", FCVAR_NONE, true, 0.0);
+	g_Cvar_BotsCount.AddChangeHook(ConVarChange_BotsCount);
+	
+	g_Cvar_BotsMode = CreateConVar("sm_bot_quota_mode", "casual", "Determines the type of quota. Allowed values: normal, casual, fill and even.", FCVAR_NONE, true, 0.0);
 	g_Cvar_BotsMode.AddChangeHook(ConVarChange_BotsMode);
 
 	g_Cvar_BotQuota = FindConVar("bot_quota");
 	g_Cvar_BotQuota.AddChangeHook(ConVarChange_BotQuota);
+	
 	g_Cvar_BotQuotaMode = FindConVar("bot_quota_mode");
 	g_Cvar_BotQuotaMode.AddChangeHook(ConVarChange_BotQuotaMode);
 
 	HookEvent("player_team", Event_PlayerTeam);
-	HookEvent("round_start", Event_RoundStart, EventHookMode_Pre);
+	HookEvent("round_start", Event_RoundStart_Pre, EventHookMode_Pre);
 }
 
 public void OnMapEnd()
 {
-	g_NumBotsOnServer = 0;
+	g_NumCurrentBots = 0;
 }
 
 public void OnConfigsExecuted()
 {
-	g_NumBotsOnServer = 0;
-	g_Cvar_BotQuota.SetInt(0);
-	g_Cvar_BotQuotaMode.SetString("normal");
-	
-	// Get bots mode
-	char mode[128];
+	char mode[256];
 	g_Cvar_BotsMode.GetString(mode, sizeof(mode));
 	
-	if (StrEqual(mode, "dm", true))
+	if (StrEqual(mode, "even", false))
 	{
-		g_BotsMode = BotsMode_Deathmatch;
+		g_CurrentBotsMode = BotQuota_Even;
 	}
-	else if (StrEqual(mode, "fix", true))
+	else if (StrEqual(mode, "fill", false))
 	{
-		g_BotsMode = BotsMode_Fix;
+		g_CurrentBotsMode = BotQuota_Fill;
 	}
-	else if (StrEqual(mode, "arena", true))
+	else if (StrEqual(mode, "normal", false))
 	{
-		g_BotsMode = BotsMode_Arena;
+		g_CurrentBotsMode = BotQuota_Normal;
 	}
 	else
 	{
-		g_BotsMode = BotsMode_Round;
+		g_CurrentBotsMode = BotQuota_Casual;
 	}
+	
+	g_Cvar_BotQuota.SetInt(0);
+	g_Cvar_BotQuotaMode.SetString("normal");
 }
 
 /* Change of valve cvars */
 public void ConVarChange_BotQuota(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	if (g_Cvar_BotQuota.IntValue != g_NumBotsOnServer)
+	if (g_Cvar_BotQuota.IntValue != g_NumCurrentBots)
 	{
-		g_Cvar_BotQuota.SetInt(g_NumBotsOnServer);
+		g_Cvar_BotQuota.SetInt(g_NumCurrentBots);
 	}
 }
 
 public void ConVarChange_BotQuotaMode(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	if (!StrEqual(newValue, "normal", true))
+	if (!StrEqual(newValue, "normal", false))
 	{
 		g_Cvar_BotQuotaMode.SetString("normal");
 	}
 }
 
 /* Hook change of our convars */
-public void ConVarChange_BotsNum(ConVar convar, const char[] oldValue, const char[] newValue)
+public void ConVarChange_BotsCount(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	int num_players;
-	int num_bots = g_NumBotsOnServer;
-	
-	if (g_BotsMode == BotsMode_Fix)
+	if (g_CurrentBotsMode == BotQuota_Normal || g_CurrentBotsMode == BotQuota_Fill)
 	{
-		num_bots = g_Cvar_BotsNum.IntValue;
-	}
-	else if (g_BotsMode == BotsMode_Deathmatch)
-	{
-		if (g_Cvar_BotsNum.IntValue)
-		{
-			num_players = GetNumOfPlayers();
-			num_bots = g_Cvar_BotsNum.IntValue - num_players;
-			if (num_bots < 1 || !num_players)
-			{
-				num_bots = 0;
-			}
-		}
-	}
-	
-	if (num_bots != g_NumBotsOnServer)
-	{
-		g_NumBotsOnServer = num_bots;
-		g_Cvar_BotQuota.SetInt(num_bots);
+		FixBotQuota();
 	}
 }
 
 public void ConVarChange_BotsMode(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	// Get bots mode
-	if (StrEqual(newValue, "dm", true))
+	if (StrEqual(newValue, "even", true))
 	{
-		g_BotsMode = BotsMode_Deathmatch;
+		g_CurrentBotsMode = BotQuota_Even;
 	}
-	else if (StrEqual(newValue, "fix", true))
+	else if (StrEqual(newValue, "fill", true))
 	{
-		g_BotsMode = BotsMode_Fix;
+		g_CurrentBotsMode = BotQuota_Fill;
 	}
-	else if (StrEqual(newValue, "arena", true))
+	else if (StrEqual(newValue, "normal", true))
 	{
-		g_BotsMode = BotsMode_Arena;
+		g_CurrentBotsMode = BotQuota_Normal;
 	}
 	else
 	{
-		g_BotsMode = BotsMode_Round;
+		g_CurrentBotsMode = BotQuota_Casual;
 	}
 	
-	// Change num bots on server
-	int num_players;
-	int num_bots = g_NumBotsOnServer;	
-	
-	if (g_BotsMode == BotsMode_Fix)
+	if (g_CurrentBotsMode == BotQuota_Normal || g_CurrentBotsMode == BotQuota_Fill)
 	{
-		num_bots = g_Cvar_BotsNum.IntValue;
-	}
-	else if (g_BotsMode == BotsMode_Deathmatch)
-	{
-		if (g_Cvar_BotsNum.IntValue)
-		{
-			num_players = GetNumOfPlayers();
-			num_bots = g_Cvar_BotsNum.IntValue - num_players;
-			
-			if (num_bots < 1 || !num_players)
-			{
-				num_bots = 0;
-			}
-		}
-	}
-	else if (g_BotsMode == BotsMode_Arena)
-	{
-		num_players = GetNumOfPlayers() + GetNumOfPlayersQueue();
-		num_bots = num_players % 2;
-	}
-	
-	if (num_bots != g_NumBotsOnServer)
-	{
-		g_NumBotsOnServer = num_bots;
-		g_Cvar_BotQuota.SetInt(num_bots);
+		FixBotQuota();
 	}
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast) 
 {
-	if (event.GetBool("isbot") || !g_Cvar_BotsNum.IntValue)
+	if (event.GetBool("isbot") || !g_Cvar_BotsCount.IntValue)
 	{
 		return;
 	}
 	
-	RequestFrame(Frame_PlayerTeam);
-}
-
-void Frame_PlayerTeam(any data)
-{
-	int num_bots = 0, num_players = 0;
-	if (g_BotsMode == BotsMode_Deathmatch || IsWarmupPeriod() && g_BotsMode == BotsMode_Round)
+	if (g_CurrentBotsMode == BotQuota_Fill || g_CurrentBotsMode == BotQuota_Casual && IsWarmupPeriod())
 	{
-		num_players = GetNumOfPlayers();
-		num_bots = g_Cvar_BotsNum.IntValue - num_players;
-		
-		if (num_bots < 0 || !num_players)
-		{
-			num_bots = 0;
-		}
-		
-		if (num_bots != g_NumBotsOnServer)
-		{
-			g_NumBotsOnServer = num_bots;
-			g_Cvar_BotQuota.SetInt(num_bots);
-		}
-	}
-	else if (g_BotsMode == BotsMode_Arena)
-	{
-		num_players = GetNumOfPlayers() + GetNumOfPlayersQueue();
-		num_bots = num_players % 2;
-		
-		if (num_bots != g_NumBotsOnServer)
-		{
-			g_NumBotsOnServer = num_bots;
-			g_Cvar_BotQuota.SetInt(num_bots);
-		}
+		RequestFrame(FixBotQuota);
 	}
 }
 
-public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
+public void Event_RoundStart_Pre(Event event, const char[] name, bool dontBroadcast) 
 {
-	if (!g_Cvar_BotsNum.IntValue || g_BotsMode == BotsMode_Deathmatch || g_BotsMode == BotsMode_Arena)
+	if (!g_Cvar_BotsCount.IntValue)
 	{
 		return;
 	}
 	
-	int num_bots = 0, num_players = 0;
-	if (g_BotsMode == BotsMode_Fix)
+	if (g_CurrentBotsMode == BotQuota_Casual || g_CurrentBotsMode == BotQuota_Even)
 	{
-		num_bots = g_Cvar_BotsNum.IntValue;
+		FixBotQuota();
 	}
-	else
+}
+
+void FixBotQuota()
+{
+	int numBots = 0;
+	int numPlayers = GetNumOfPlayers();
+	
+	switch (g_CurrentBotsMode)
 	{
-		num_players = GetNumOfPlayers();
-		num_bots = g_Cvar_BotsNum.IntValue - num_players;
-		
-		if (num_bots < 0 || !num_players)
+		case BotQuota_Even:
 		{
-			num_bots = 0;
+			numBots = numPlayers % 2;
+		}
+		
+		case BotQuota_Normal:
+		{
+			numBots = g_Cvar_BotsCount.IntValue;
+		}
+		
+		default:
+		{
+			numBots = g_Cvar_BotsCount.IntValue - numPlayers;
+			if (numBots < 0 || !numPlayers)
+			{
+				numBots = 0;
+			}
 		}
 	}
 	
-	if (num_bots != g_NumBotsOnServer)
+	if (numBots != g_NumCurrentBots)
 	{
-		g_NumBotsOnServer = num_bots;
-		g_Cvar_BotQuota.SetInt(num_bots);
+		g_NumCurrentBots = numBots;
+		g_Cvar_BotQuota.SetInt(numBots);
 	}
 }
 
@@ -259,28 +196,14 @@ bool IsWarmupPeriod()
 
 int GetNumOfPlayers()
 {
-	int num = 0;
+	int numPlayers = 0;
 	for (int i = 1; i <= MaxClients; i++)
 	{
 		if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) > CS_TEAM_SPECTATOR)
 		{
-			num++;
+			numPlayers++;
 		}
 	}
 	
-	return num;
-}
-
-int GetNumOfPlayersQueue()
-{
-    int num = 0;
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (IsClientInGame(i) && !IsFakeClient(i) && GetClientTeam(i) == CS_TEAM_SPECTATOR && Multi1v1_IsInWaitingQueue(i))
-        {
-            num++;
-        }
-    }
-    
-    return num;
+	return numPlayers;
 }
